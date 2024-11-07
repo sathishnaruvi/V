@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Employee Leave Booking System</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .leave-form {
+            display: flex;
+            flex-direction: column;
+        }
+        .leave-form input, .leave-form select {
+            margin-bottom: 10px;
+            padding: 8px;
+            font-size: 16px;
+        }
+        .leave-form button {
+            padding: 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        .leave-form button:hover {
+            background-color: #45a049;
+        }
+        .leave-status {
+            margin-top: 20px;
+        }
+        .leave-status table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .leave-status th, .leave-status td {
+            padding: 10px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+        .cancel-btn {
+            background-color: red;
+            color: white;
+            padding: 5px;
+            cursor: pointer;
+            border: none;
+        }
+        .export-buttons {
+            margin-top: 20px;
+        }
+        .export-buttons button {
+            padding: 10px;
+            margin-right: 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        .export-buttons button:hover {
+            background-color: #45a049;
+        }
+        .checkout-button {
+            margin-top: 20px;
+            background-color: #FF8C00;
+            padding: 10px;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        .checkout-button:hover {
+            background-color: #FF7F00;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Employee Leave Booking System</h2>
+        <form id="leaveForm" class="leave-form">
+            <label for="employee">Employee Name:</label>
+            <input type="text" id="employee" required>
+
+            <label for="leaveType">Leave Type:</label>
+            <select id="leaveType" required>
+                <option value="CL">Casual Leave (CL)</option>
+                <option value="SL">Sick Leave (SL)</option>
+                <option value="ML">Maternity Leave (ML)</option>
+                <option value="VL">Vacation Leave (VL)</option>
+                <option value="OTH">Other Leave (OTH)</option>
+            </select>
+
+            <label for="startDate">Start Date:</label>
+            <input type="date" id="startDate" required>
+
+            <label for="endDate">End Date:</label>
+            <input type="date" id="endDate" required>
+
+            <button type="submit">Book Leave</button>
+        </form>
+
+        <div class="leave-status">
+            <h3>Leave Status</h3>
+            <table id="leaveTable">
+                <thead>
+                    <tr>
+                        <th>Employee</th>
+                        <th>Leave Type</th>
+                        <th>Start Date</th>
+                        <th>End Date</th>
+                        <th>Booking Date & Time</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Leave records will appear here -->
+                </tbody>
+            </table>
+        </div>
+
+        <div class="export-buttons">
+            <button id="exportExcel">Export to Excel</button>
+            <button id="exportPDF">Export to PDF</button>
+            <button id="monthlyCheckout" class="checkout-button">Monthly Checkout</button>
+        </div>
+    </div>
+
+    <!-- Include SheetJS and jsPDF libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.0/jspdf.umd.min.js"></script>
+
+    <script>
+        const leaveForm = document.getElementById('leaveForm');
+        const leaveTableBody = document.querySelector('#leaveTable tbody');
+        const leaveRecords = [];
+
+        const maxLeavePerDay = 2;
+        const leaveLimitPerMonth = 1;
+
+        leaveForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            const employee = document.getElementById('employee').value;
+            const leaveType = document.getElementById('leaveType').value;
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            const bookingTime = new Date().toLocaleString();
+
+            // Validation checks
+            if (new Date(startDate) > new Date(endDate)) {
+                alert('End date cannot be before start date.');
+                return;
+            }
+
+            // Check if the same employee already booked leave on the same date
+            const sameDateLeave = leaveRecords.find(leave => 
+                leave.employee === employee && (
+                    (new Date(leave.startDate) <= new Date(endDate) && new Date(leave.endDate) >= new Date(startDate))
+                )
+            );
+            if (sameDateLeave) {
+                alert('You have already booked leave during this date range.');
+                return;
+            }
+
+            // Check if two employees have already booked leave for the same date
+            const overlappingLeaves = leaveRecords.filter(leave => 
+                (new Date(leave.startDate) <= new Date(endDate) && new Date(leave.endDate) >= new Date(startDate))
+            );
+            if (overlappingLeaves.length >= maxLeavePerDay) {
+                alert('Only 2 employees can book leave on the same date.');
+                return;
+            }
+
+            // Check if the employee already booked CL or SL in the same month
+            const month = new Date(startDate).getMonth();
+            const year = new Date(startDate).getFullYear();
+
+            const sameMonthLeaves = leaveRecords.filter(leave => 
+                leave.employee === employee &&
+                new Date(leave.startDate).getMonth() === month &&
+                new Date(leave.startDate).getFullYear() === year &&
+                leave.leaveType === leaveType &&
+                (leaveType === 'CL' || leaveType === 'SL')
+            );
+
+            if (sameMonthLeaves.length >= leaveLimitPerMonth && (leaveType === 'CL' || leaveType === 'SL')) {
+                alert(`You can only book one ${leaveType} per month.`);
+                return;
+            }
+
+            // Confirmation popup for booking
+            if (confirm("Are you sure you want to book this leave?")) {
+                // Add leave record
+                const leaveRecord = { employee, leaveType, startDate, endDate, bookingTime };
+                leaveRecords.push(leaveRecord);
+                renderLeaveTable();
+                leaveForm.reset();
+            }
+        });
+
+        function renderLeaveTable() {
+            leaveTableBody.innerHTML = '';
+            leaveRecords.forEach((leave, index) => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${leave.employee}</td>
+                    <td>${leave.leaveType}</td>
+                    <td>${leave.startDate}</td>
+                    <td>${leave.endDate}</td>
+                    <td>${leave.bookingTime}</td>
+                    <td><button class="cancel-btn" onclick="confirmCancel(${index})">Cancel</button></td>
+                `;
+                leaveTableBody.appendChild(row);
+            });
+        }
+
+        function confirmCancel(index) {
+            if (confirm("Are you sure you want to cancel this leave?")) {
+                leaveRecords.splice(index, 1);
+                renderLeaveTable();
+            }
+        }
+
+        // Export to Excel
+        document.getElementById('exportExcel').addEventListener('click', function() {
+            if (leaveRecords.length === 0) {
+                alert('No leave records to export.');
+                return;
+            }
+
+            const worksheetData = leaveRecords.map(leave => ({
+                'Employee': leave.employee,
+                'Leave Type': leave.leaveType,
+                'Start Date': leave.startDate,
+                'End Date': leave.endDate,
+                'Booking Date & Time': leave.bookingTime
+            }));
+
+            const worksheet = XLSX.utils.json_to_sheet(worksheetData);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Leave Records");
+
+            XLSX.writeFile(workbook, 'Employee_Leave_Summary.xlsx');
+        });
+
+        // Export to PDF
+        document.getElementById('exportPDF').addEventListener('click', function() {
+            if (leaveRecords.length === 0) {
+                alert('No leave records to export.');
+                return;
+            }
+
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            let startY = 20;
+
+            doc.text('Employee Leave Summary', 10, 10);
+
+            leaveRecords.forEach((leave, index) => {
+                doc.text(`Employee: ${leave.employee}`, 10, startY);
+                doc.text(`Leave Type: ${leave.leaveType}`, 10, startY + 10);
+                doc.text(`Start Date: ${leave.startDate}`, 10, startY + 20);
+                doc.text(`End Date: ${leave.endDate}`, 10, startY + 30);
+                doc.text(`Booking Time: ${leave.bookingTime}`, 10, startY + 40);
+                startY += 60;
+                if (startY > 280) {
+                    doc.addPage();
+                    startY = 20;
+                }
+            });
+
+            doc.save('Employee_Leave_Summary.pdf');
+        });
+
+        // Monthly Checkout
+        document.getElementById('monthlyCheckout').addEventListener('click', function() {
+            if (leaveRecords.length === 0) {
+                alert('No leave records to checkout.');
+                return;
+            }
+
+            if (confirm("Are you sure you want to perform a monthly checkout? This will export the leave records and reset the system for the new month.")) {
+                // Export records before clearing
+                exportRecordsForCheckout();
+
+                // Clear the leave records
+                leaveRecords.length = 0;
+                renderLeaveTable();
+
+                alert('Monthly checkout completed. Leave records have been exported and the system has been reset for the new month.');
+            }
+        });
+
+        function exportRecordsForCheckout() {
+            // Generate timestamped filenames
+            const timestamp = new Date().toISOString().slice(0,10);
+
+            // Export to Excel
+            const worksheetData = leaveRecords.map(leave => ({
+                'Employee': leave.employee,
+                'Leave Type': leave.leaveType,
+                'Start Date': leave.startDate,
+                'End Date': leave.endDate,
+                'Booking Date & Time': leave.bookingTime
+            }));
+
+            const worksheet = XLSX.utils.json_to_sheet(worksheetData);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Leave Records");
+
+            XLSX.writeFile(workbook, `Employee_Leave_Summary_${timestamp}.xlsx`);
+
+            // Export to PDF
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            let startY = 20;
+
+            doc.text('Employee Leave Summary', 10, 10);
+
+            leaveRecords.forEach((leave, index) => {
+                doc.text(`Employee: ${leave.employee}`, 10, startY);
+                doc.text(`Leave Type: ${leave.leaveType}`, 10, startY + 10);
+                doc.text(`Start Date: ${leave.startDate}`, 10, startY + 20);
+                doc.text(`End Date: ${leave.endDate}`, 10, startY + 30);
+                doc.text(`Booking Time: ${leave.bookingTime}`, 10, startY + 40);
+                startY += 60;
+                if (startY > 280) {
+                    doc.addPage();
+                    startY = 20;
+                }
+            });
+
+            doc.save(`Employee_Leave_Summary_${timestamp}.pdf`);
+        }
+    </script>
+</body>
+</html>
